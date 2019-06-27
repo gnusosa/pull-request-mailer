@@ -33,10 +33,10 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Typeable
 import GHC.Generics
-import Github.Auth
-import qualified Github.Issues.Comments as GH
-import Github.PullRequests hiding (Error)
-import qualified Github.PullRequests as GH
+import GitHub.Auth
+import qualified GitHub.Endpoints.Issues.Comments as GH
+import GitHub.Endpoints.PullRequests hiding (Error)
+import qualified GitHub.Endpoints.PullRequests as GH
 import System.Command (cmd, Stdout(..), Exit(..))
 import System.Directory (setCurrentDirectory)
 import System.Exit (ExitCode(..))

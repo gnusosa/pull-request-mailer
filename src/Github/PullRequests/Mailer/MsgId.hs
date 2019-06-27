@@ -19,7 +19,7 @@ import Data.Aeson
 import qualified Data.Text as T
 import GHC.Generics
 import qualified Text.Parsec as P
-import qualified Text.ParserCombinators.Parsec.Rfc2822 as Rfc2822
+import qualified Text.Parsec.Rfc2822 as Rfc2822
 
 
 -- | A string that is known to be a valid "msg-id" according to RFC 2822.
