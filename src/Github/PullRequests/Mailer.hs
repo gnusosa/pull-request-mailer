@@ -31,9 +31,13 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import qualified Data.Text.Encoding as T
+import qualified Data.Vector as V
 import Data.Typeable
 import GHC.Generics
 import GitHub.Auth
+import GitHub.Data.PullRequests
+import GitHub.Data.Definitions
 import qualified GitHub.Endpoints.Issues.Comments as GH
 import GitHub.Endpoints.PullRequests hiding (Error)
 import qualified GitHub.Endpoints.PullRequests as GH
@@ -48,7 +52,7 @@ import Github.PullRequests.Mailer.MsgId
 
 
 -- | Terminates the program with exit code 1 and the given error message.
-die :: (MonadError e m, Error e) => String -> m a
+die :: (MonadError e m, Control.Monad.Error.Error e) => String -> m a
 die = throwError . strMsg
 
 
@@ -87,16 +91,16 @@ strip = T.unpack . T.strip . T.pack
 
 -- | Identifies a pull request.
 data PRID = PRID
-  { pridUser   :: String
-  , pridName   :: String
-  , pridNumber :: Int
+  { pridOwner    :: Name Owner
+  , pridRepoName :: Name Repo
+  , pridNumber   :: IssueNumber
   } deriving (Eq, Ord, Show)
 
 
 -- | Downloads a pull request from Github. Dies on error.
-downloadPullRequest :: Maybe GithubAuth -> PRID -> IO DetailedPullRequest
-downloadPullRequest auth PRID{ pridUser, pridName, pridNumber } = do
-  GH.pullRequest' auth pridUser pridName pridNumber >>=
+downloadPullRequest :: Maybe Auth -> PRID -> IO PullRequest
+downloadPullRequest auth PRID{ pridOwner, pridRepoName, pridNumber } = do
+  GH.pullRequest' auth pridOwner pridRepoName pridNumber >>=
     rightOrThrowGithub "Error getting pull request"
 
 
@@ -130,13 +134,12 @@ _THREAD_INFO_JSON_HEADER = "pull-request-mailer-data "
 
 -- | Parses a Github issue comment body into a `ThreadInfo`, if it contains
 -- one.
-parseThreadInfo :: String -> Maybe ThreadInfo
+parseThreadInfo :: T.Text -> Maybe ThreadInfo
 parseThreadInfo body = do
-  let bodyBs = BS8.pack body
-      dataHeader = BS8.pack _THREAD_INFO_JSON_HEADER
+  let dataHeader = T.pack _THREAD_INFO_JSON_HEADER
       -- Find where the data starts.
-      rest = BS.drop (BS8.length dataHeader)
-             . snd . BS.breakSubstring dataHeader $ bodyBs
+      rest = T.encodeUtf8 . T.drop (T.length dataHeader)
+             . last . T.splitOn dataHeader $ body
 
   -- Parse what follows as `ThreadInfo`, drop everything behind.
   case fromJSON <$> A.parseOnly json' rest of
@@ -145,13 +148,13 @@ parseThreadInfo body = do
 
 
 -- | Get the most recent `ThreadInfo` contained in a pull request's comments.
-getMostRecentThreadInfo :: Maybe GithubAuth -- ^ Github authentication
+getMostRecentThreadInfo :: Maybe Auth -- ^ Github authentication
                         -> PRID             -- ^ from wich PR to get the info
                         -> IO (Maybe ThreadInfo)
-getMostRecentThreadInfo auth PRID{ pridUser, pridName, pridNumber } =
-  liftM (last . (Nothing :) . map (parseThreadInfo . issueCommentBody)) .
+getMostRecentThreadInfo auth PRID{ pridOwner, pridRepoName, pridNumber } =
+  liftM (V.last . (V.cons Nothing) . V.map (parseThreadInfo . issueCommentBody)) .
   rightOrThrowGithub "Failed to get pull request comments" =<<
-  GH.comments' auth pridUser pridName pridNumber
+  GH.comments' auth pridOwner pridRepoName pridNumber
 
 
 -- | Converts a pull request to a patch series using `git format-patch`.
@@ -160,24 +163,24 @@ sendPatchSeries :: String              -- ^ recipient email address
                 -> Maybe ThreadInfo    -- ^ thread to reply to
                                        --   (previous iteration of the PR)
                 -> Maybe String        -- ^ post-checkout hook program
-                -> DetailedPullRequest -- ^ the pull request to convert
+                -> PullRequest -- ^ the pull request to convert
                 -> IO ThreadInfo
 sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
-  DetailedPullRequest
-    { detailedPullRequestHtmlUrl = url
-    , detailedPullRequestUser = prOwner
-    , detailedPullRequestTitle = title
-    , detailedPullRequestBody = body
-    , detailedPullRequestHead = PullRequestCommit
+  PullRequest
+    { pullRequestHtmlUrl = url
+    , pullRequestUser = prOwner
+    , pullRequestTitle = title
+    , pullRequestBody = body
+    , pullRequestHead = PullRequestCommit
         { pullRequestCommitRef = tipBranch
-        , pullRequestCommitRepo = Repo
+        , pullRequestCommitRepo = Just Repo
             { repoName = tipRepoName
             , repoOwner = tipRepoOwner
             }
         }
-    , detailedPullRequestBase = PullRequestCommit
+    , pullRequestBase = PullRequestCommit
         { pullRequestCommitRef = baseBranch
-        , pullRequestCommitRepo = Repo
+        , pullRequestCommitRepo = Just Repo
             { repoName = baseRepoName
             , repoOwner = baseRepoOwner
             }
@@ -187,7 +190,7 @@ sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
   withSystemTempDirectory "pull-request-mailer" $ \tmpDir -> do
 
     -- Clone the base.
-    let uri = githubOwnerLogin baseRepoOwner ++ "/" ++ baseRepoName
+    let uri = simpleOwnerLogin baseRepoOwner ++ "/" ++ baseRepoName
     logInfo $ "Cloning " ++ uri
     () <- cmd ("git clone git://github.com/" ++ uri) "-b" baseBranch tmpDir
     -- ^ We don't use --depth 1 here because git will send the whole history
@@ -297,14 +300,14 @@ sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
 -- a thread so that force-pushed improvements to the PR can be sent with
 -- the correct `--reroll-count` option to `git format-patch`.
 -- The first iteration (original patch) should be passed as reroll-count=1.
-postMailerInfoComment :: GithubAuth -- ^ Github authentication
+postMailerInfoComment :: Auth -- ^ Github authentication
                       -> PRID       -- ^ on which PR to comment
                       -> String     -- ^ discussion location
                       -> ThreadInfo -- ^ information to post for subsequent
                                     --   invocations
                       -> IO ()
 postMailerInfoComment auth prid discussionLocation threadInfo = do
-  let PRID{ pridUser, pridName, pridNumber } = prid
+  let PRID{ pridOwner, pridRepoName, pridNumber } = prid
   -- Note: The message ID in `threadInfo` contains "<" and ">".
   --       aeson's `encode` turns them into not-so-nice "\u003c" and "\u003e"
   --       for silly reasons, see:
@@ -326,7 +329,7 @@ postMailerInfoComment auth prid discussionLocation threadInfo = do
 
 
 -- | Converts a detailed pull request into a 'PRID'.
-detailedPullRequestToPRID :: DetailedPullRequest -> PRID
+detailedPullRequestToPRID :: PullRequest -> PRID
 detailedPullRequestToPRID dpr =
   PRID (githubOwnerLogin . repoOwner $ repo)
        (repoName repo)
@@ -336,7 +339,7 @@ detailedPullRequestToPRID dpr =
 
 
 -- | Converts a GitHub pull request to a mail thread and sends it.
-pullRequestToThread :: Maybe GithubAuth -- ^ Github authentication
+pullRequestToThread :: Maybe Auth -- ^ Github authentication
                     -> PRID             -- ^ wich PR to convert to an email
                                         --   thread
                     -> String           -- ^ recipient email address
