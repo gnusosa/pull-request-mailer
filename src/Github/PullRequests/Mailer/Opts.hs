@@ -17,8 +17,11 @@ module Github.PullRequests.Mailer.Opts
   , parseOptsAndEnv
   ) where
 
-import Github.Auth
+import GitHub.Auth
+import GitHub.Data.Definitions
+import qualified Data.ByteString.Char8 as BS8
 import Options.Applicative
+import qualified Data.ByteString as BS
 import qualified Options.Applicative.Help as H
 import System.Environment (lookupEnv)
 
@@ -30,7 +33,7 @@ data Opts = Opts
   { optsRecipient          :: String
   , optsReplyTo            :: Maybe String
   , optsPostCheckoutHook   :: Maybe String
-  , optsAuth               :: Maybe GithubAuth
+  , optsAuth               :: Maybe Auth
   , optsNoThreadTracking   :: Bool
   , optsDiscussionLocation :: Maybe String
   , optsSecret             :: Maybe String
@@ -99,10 +102,16 @@ pridParser =
           ( metavar "REPO"
             <> help "Repo containing the pull request"
           )
-    <*> argument auto
-          ( metavar "N"
-            <> help "Number of the pull request"
-          )
+    <*> pridParserIssueNumber
+
+pridParserIssueNumber:: Parser Int
+pridParserIssueNumber = argument issueNumberRead
+                        ( metavar "N"
+                          <> help "Number of the pull request"
+                        )
+
+issueNumberRead :: ReadM IssueNumber
+issueNumberRead = IssueNumber <$> ...
 
 
 -- | Like `execParser`, but sets those fields of `Opts` that can be set via
@@ -118,7 +127,7 @@ parseOptsAndEnv :: (Parser Opts -> Parser a) -> InfoMod a -> IO a
 parseOptsAndEnv f infoMod = do
   envToken <- lookupEnv tokenEnvVar
   envSecret <- lookupEnv secretEnvVar
-  let setEnvOpts opts = opts{ optsAuth = GithubOAuth <$> envToken
+  let setEnvOpts opts = opts{ optsAuth = OAuth <$> BS8.pack <$> envToken
                             , optsSecret = envSecret
                             }
   execParser $
