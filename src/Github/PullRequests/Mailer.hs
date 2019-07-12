@@ -158,11 +158,11 @@ getMostRecentThreadInfo auth PRID{ pridOwner, pridRepoName, pridNumber } =
 
 
 -- | Converts a pull request to a patch series using `git format-patch`.
-sendPatchSeries :: String              -- ^ recipient email address
-                -> Maybe String        -- ^ reply-to address
+sendPatchSeries :: Text              -- ^ recipient email address
+                -> Maybe Text        -- ^ reply-to address
                 -> Maybe ThreadInfo    -- ^ thread to reply to
                                        --   (previous iteration of the PR)
-                -> Maybe String        -- ^ post-checkout hook program
+                -> Maybe Text        -- ^ post-checkout hook program
                 -> PullRequest -- ^ the pull request to convert
                 -> IO ThreadInfo
 sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
@@ -213,8 +213,8 @@ sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
 
     -- Run the post-checkout hook command if given.
     for_ checkoutHookCmd $ \hookCmd -> do
-      logInfo $ "Running " ++ hookCmd
-      Exit code <- cmd hookCmd
+      logInfo $ "Running " ++ (show hookCmd)
+      Exit code <- cmd (show hookCmd)
       when (code /= ExitSuccess) $ die "Post checkout hook failed. Aborting."
 
     let _PATCH_DIR_NAME = "patch-dir"
@@ -239,7 +239,7 @@ sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
                       , "--reroll-count=" ++ show (lastN + 1)
                       ]
               )
-              [ "--add-header=Reply-To: " ++ addr | Just addr <- [replyTo] ]
+              [ "--add-header=Reply-To: " ++ (show addr) | Just addr <- [replyTo] ]
               "--output-directory" _PATCH_DIR_NAME
               "--thread=shallow"
               ("origin/" ++ show baseBranch ++ "..pullrequest/" ++ show tipBranch)
@@ -273,7 +273,7 @@ sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
     () <- cmd "git send-email"
               "--no-thread" -- we do threading with `format-patch` above
               "--confirm=never" -- be non-interactive
-              ["--to=" ++ recipient, "--from=" ++ seriesSubmitter]
+              ["--to=" ++ (show recipient), "--from=" ++ seriesSubmitter]
               _PATCH_DIR_NAME
 
     return $ ThreadInfo msgId (maybe 1 (succ . tiIteration) prevThreadInfo)
@@ -342,9 +342,9 @@ detailedPullRequestToPRID dpr =
 pullRequestToThread :: Maybe Auth -- ^ Github authentication
                     -> PRID             -- ^ wich PR to convert to an email
                                         --   thread
-                    -> String           -- ^ recipient email address
-                    -> Maybe String     -- ^ reply-to address
-                    -> Maybe String     -- ^ post-checkout hook program
+                    -> Text           -- ^ recipient email address
+                    -> Maybe Text     -- ^ reply-to address
+                    -> Maybe Text     -- ^ post-checkout hook program
                     -> IO ThreadInfo
 pullRequestToThread m'auth prid recipient replyTo checkoutHookCmd = do
   pr <- downloadPullRequest m'auth prid

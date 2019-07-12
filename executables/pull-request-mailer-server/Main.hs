@@ -16,12 +16,13 @@ import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable (for_)
 import Data.Monoid
+import Data.Text as T
 import Data.Text.Lazy as TL
 import Data.Text.Lazy.Encoding as TL
 import qualified Data.Text.Lazy.IO as TL
-import Github.Auth
-import Github.PullRequests
-import Github.Repos.Webhooks.Validate (isValidPayload)
+import GitHub.Auth
+import GitHub.Data.PullRequests
+import GitHub.Data.Webhooks.Validate (isValidPayload)
 import Network.HTTP.Types.Status (forbidden403)
 import Options.Applicative hiding (header)
 import System.IO (stderr)
@@ -70,8 +71,8 @@ main = do
          , optsReplyTo            = replyTo
          , optsPostCheckoutHook   = checkoutHookCmd
          } ->
-      pullRequestToThreadServer m'auth secret recipient replyTo
-                                checkoutHookCmd Nothing
+      pullRequestToThreadServer m'auth (T.pack secret) (T.pack recipient) (T.pack <$> replyTo)
+                                (T.pack <$> checkoutHookCmd) Nothing
 
     -- Normal mode (thread tracking).
     Opts { optsNoThreadTracking   = False
@@ -82,8 +83,8 @@ main = do
          , optsReplyTo            = replyTo
          , optsPostCheckoutHook   = checkoutHookCmd
          } ->
-      pullRequestToThreadServer m'auth secret recipient replyTo
-                                checkoutHookCmd m'loc
+      pullRequestToThreadServer m'auth (T.pack secret) (T.pack recipient) (T.pack <$> replyTo)
+                                (T.pack <$> checkoutHookCmd) (T.pack <$> m'loc)
 
 
 -- | Runs an action in a separate unix process. Blocks until finished.
@@ -91,13 +92,13 @@ forkWait :: IO () -> IO ()
 forkWait f = forkProcess f >>= void . getProcessStatus True False
 
 
-pullRequestToThreadServer :: Maybe GithubAuth -- ^ Github authentication
-                          -> String           -- ^ Hook verification secret
-                          -> String           -- ^ recipient email address
-                          -> Maybe String     -- ^ reply-to email address
-                          -> Maybe String     -- ^ post-checkout hook program
-                          -> Maybe String     -- ^ discussion location; Nothing
-                                              --   disables posting/tracking
+pullRequestToThreadServer :: Maybe Auth -- ^ Github authentication
+                          -> T.Text           -- ^ recipient email address
+                          -> T.Text           -- ^ Hook verification secret
+                          -> Maybe T.Text     -- ^ reply-to email address
+                          -> Maybe T.Text     -- ^ post-checkout hook program
+                          -> Maybe T.Text     -- ^ discussion location; Nothing
+                                            --   disables posting/tracking
                           -> IO ()
 pullRequestToThreadServer m'auth
                           secret
@@ -119,7 +120,7 @@ pullRequestToThreadServer m'auth
       digest <- fmap TL.unpack <$> header "X-Hub-Signature"
       payload <- body
 
-      if isValidPayload secret digest (BL.toStrict payload)
+      if isValidPayload secret (T.pack <$> digest) (BL.toStrict payload)
         then do
           run payload
           text ""
@@ -147,4 +148,4 @@ pullRequestToThreadServer m'auth
           -- Post comment into PR if enabled and we have auth.
           for_ m'auth $ \auth ->
             for_ m'discussionLocation $ \discussionLocation ->
-              postMailerInfoComment auth prid discussionLocation tInfo
+              postMailerInfoComment auth prid (show discussionLocation) tInfo

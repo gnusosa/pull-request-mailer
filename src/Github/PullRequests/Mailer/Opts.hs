@@ -104,15 +104,12 @@ pridParser =
           )
     <*> pridParserIssueNumber
 
-pridParserIssueNumber:: Parser Int
-pridParserIssueNumber = argument issueNumberRead
-                        ( metavar "N"
-                          <> help "Number of the pull request"
-                        )
-
-issueNumberRead :: ReadM IssueNumber
-issueNumberRead = IssueNumber <$> ...
-
+pridParserIssueNumber :: Parser IssueNumber
+pridParserIssueNumber = IssueNumber <$>
+                  argument auto
+                  ( metavar "N"
+                    <> help "Number of the pull request"
+                  )
 
 -- | Like `execParser`, but sets those fields of `Opts` that can be set via
 -- environment variables.

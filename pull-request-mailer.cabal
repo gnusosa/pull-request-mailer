@@ -61,6 +61,7 @@ executable pull-request-mailer
       base
     , pull-request-mailer
     , optparse-applicative
+    , text
 
     -- Own dependencies (with versions):
   ghc-options:
