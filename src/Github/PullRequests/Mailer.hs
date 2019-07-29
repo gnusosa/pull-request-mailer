@@ -182,7 +182,9 @@ sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
         { pullRequestCommitRef = baseBranch
         , pullRequestCommitRepo = Just Repo
             { repoName = baseRepoName
-            , repoOwner = baseRepoOwner
+            , repoOwner = SimpleOwner {
+                simpleOwnerLogin = baseOwnerLogin
+                                      }
             }
         }
     } = do
