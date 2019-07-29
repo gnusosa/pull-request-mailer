@@ -192,7 +192,7 @@ sendPatchSeries recipient replyTo prevThreadInfo checkoutHookCmd
   withSystemTempDirectory "pull-request-mailer" $ \tmpDir -> do
 
     -- Clone the base.
-    let uri = show baseRepoOwner ++ "/" ++ show baseRepoName
+    let uri = show baseOwnerLogin ++ "/" ++ show baseRepoName
     logInfo $ "Cloning " ++ uri
     () <- cmd ("git clone git://github.com/" ++ uri) "-b" (show baseBranch) tmpDir
     -- ^ We don't use --depth 1 here because git will send the whole history
